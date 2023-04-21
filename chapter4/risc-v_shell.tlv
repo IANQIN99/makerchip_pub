@@ -27,7 +27,7 @@
    m4_asm(ADD, x14, x13, x14)           // Incremental summation
    m4_asm(ADDI, x13, x13, 1)            // Increment loop count by 1
    m4_asm(BLT, x13, x12, 1111111111000) // If a3 is less than a2, branch to label named <loop>
-   m4_asm(ADDI, x0, x0, 110)
+   // m4_asm(ADDI, x0, x0, 110)
    // Test result value in x14, and set x31 to reflect pass/fail.
    m4_asm(ADDI, x30, x14, 111111010100) // Subtract expected value of 44 to set x30 to 1 if and only iff the result is 45 (1 + 2 + ... + 9).
    m4_asm(BGE, x0, x0, 0) // Done. Jump to itself (infinite loop). (Up to 20-bit signed immediate plus implicit 0 bit (unlike JALR) provides byte address; last immediate bit should also be 0)
@@ -46,9 +46,10 @@
    
    // YOUR CODE HERE
    // Step 1: PC - Create a programme counter
-   $pc[31:0] = $reset ? 32'b0 :
-               $taken_br ? $br_tgt_pc :
-               >>1$pc[31:0] + 32'b0100; // Note: default next PC just fixed incremental PC unless a branch is taken
+   $next_pc[31:0] = $reset ? 32'b0 :
+                    $taken_br ? $br_tgt_pc :
+                    >>1$pc[31:0] + 32'b0100; // Note: default next PC just fixed incremental PC unless a branch is taken   
+   $pc[31:0] = $reset ? 32'b0 : $next_pc;
    
    // Step 2: INSTR - Fetch the instruction from the ROM using the programme counter as memory address
    `READONLY_MEM(>>1$pc, $$instr[31:0]);
@@ -101,7 +102,9 @@
                    32'b0; // Note: default value
    
    // Step 9: X0 - Prevent register X0 written to non-zero value by deasserting $wr_en
-   $wr_en = ! ($rd == 5'b0 && $result != 32'b0);
+   $wr_en = ! ($rd == 5'b0 && $result != 32'b0) && $rd_valid;
+   $rd1_en = $rs1_valid;
+   $rd2_en = $rs2_valid;
    
    // Step 10: BRANCH - Create branch taker with decoding logic
    $taken_br = $is_beq? $src1_value == $src2_value :
@@ -114,7 +117,9 @@
    $br_tgt_pc[31:0] = >>1$pc + $imm;
    
    // Assert these to end simulation (before Makerchip cycle limit).
-   *passed = 1'b0;
+   // Step 11: TB - Import testbench to verify logic
+   m4+tb()
+   // *passed = 1'b0; // Original passed criteria is commented
    *failed = *cyc_cnt > M4_MAX_CYC;
    
    // Step 7: REGISTER FILE - Instantiate the register bank for different operations
