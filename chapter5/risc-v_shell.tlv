@@ -8,32 +8,8 @@
 
 
    //---------------------------------------------------------------------------------
-   // /====================\
-   // | Sum 1 to 9 Program |
-   // \====================/
-   //
-   // Program to test RV32I
-   // Add 1,2,3,...,9 (in that order).
-   //
-   // Regs:
-   //  x12 (a2): 10
-   //  x13 (a3): 1..10
-   //  x14 (a4): Sum
-   // 
-   m4_asm(ADDI, x14, x0, 0)             // Initialize sum register a4 with 0
-   m4_asm(ADDI, x12, x0, 1010)          // Store count of 10 in register a2.
-   m4_asm(ADDI, x13, x0, 1)             // Initialize loop count register a3 with 0
-   // Loop:
-   m4_asm(ADD, x14, x13, x14)           // Incremental summation
-   m4_asm(ADDI, x13, x13, 1)            // Increment loop count by 1
-   m4_asm(BLT, x13, x12, 1111111111000) // If a3 is less than a2, branch to label named <loop>
-   // m4_asm(ADDI, x0, x0, 110)
-   // Test result value in x14, and set x31 to reflect pass/fail.
-   m4_asm(ADDI, x30, x14, 111111010100) // Subtract expected value of 44 to set x30 to 1 if and only iff the result is 45 (1 + 2 + ... + 9).
-   m4_asm(BGE, x0, x0, 0) // Done. Jump to itself (infinite loop). (Up to 20-bit signed immediate plus implicit 0 bit (unlike JALR) provides byte address; last immediate bit should also be 0)
-   m4_asm_end()
-   m4_define(['M4_MAX_CYC'], 50)
-   
+   // Chapter 5 test programme
+   m4_test_prog()
    //---------------------------------------------------------------------------------
 
 
@@ -48,7 +24,8 @@
    // YOUR CODE HERE
    // Step 1: PC - Create a programme counter
    $next_pc[31:0] = $reset ? 32'b0 :
-                    $taken_br ? $br_tgt_pc :
+                    ($taken_br || $is_jal) ? $br_tgt_pc :
+                    $is_jalr ? $jalr_tgt_pc :
                     >>1$pc[31:0] + 32'b0100; // Note: default next PC just fixed incremental PC unless a branch is taken   
    $pc[31:0] = $reset ? 32'b0 : $next_pc;
    
@@ -73,7 +50,7 @@
    $funct3[2:0] = $instr[14:12];
    $funct3_valid = $is_r_instr || $is_i_instr || $is_s_instr || $is_b_instr;
    $rd[4:0] = $instr[11:7];
-   $rd_valid = $is_r_instr || $is_i_instr;
+   $rd_valid = $is_r_instr || $is_i_instr || $is_u_instr || $is_j_instr; // Note: fixed the bug not including U- and J-type instructions in chapter 4
    $opcode[6:0] = $instr[6:0];
    `BOGUS_USE($rs2 $rs2_valid $rs1 $rs1_valid $funct3 $funct3_valid $rd $rd_valid); // Note: to suppress warnings of these signals in log file
    
@@ -87,35 +64,110 @@
                 32'b0; // Note: default value
    
    // Step 6: DECODE LOGIC - Extract bits of interest for decode purpose
+   // In chapter 5, all decoded logics are added
    $dec_bits[10:0] = {$instr[30], $funct3, $opcode};
+   $is_lui = $dec_bits ==? 11'bx_xxx_0110111;
+   $is_auipc = $dec_bits ==? 11'bx_xxx_0010111;
+   $is_jal = $dec_bits ==? 11'bx_xxx_1101111;
+   $is_jalr = $dec_bits ==? 11'bx_000_1100111;
    $is_beq = $dec_bits ==? 11'bx_000_1100011;
    $is_bne = $dec_bits ==? 11'bx_001_1100011;
    $is_blt = $dec_bits ==? 11'bx_100_1100011;
    $is_bge = $dec_bits ==? 11'bx_101_1100011;
    $is_bltu = $dec_bits ==? 11'bx_110_1100011;
    $is_bgeu = $dec_bits ==? 11'bx_111_1100011;
+   //$is_lb = $dec_bits ==? 11'bx_000_0000011;
+   //$is_lh = $dec_bits ==? 11'bx_001_0000011;
+   //$is_lw = $dec_bits ==? 11'bx_010_0000011;
+   //$is_lbu = $dec_bits ==? 11'bx_100_0000011;
+   //$is_lhu = $dec_bits ==? 11'bx_101_0000011;
+   $is_load = $dec_bits ==? 11'bx_xxx_0000011; //use single identifier for all load
+   //$is_sb = $dec_bits ==? 11'bx_000_0100011;
+   //$is_sh = $dec_bits ==? 11'bx_001_0100011;
+   //$is_sw = $dec_bits ==? 11'bx_010_0100011; S instruction already identified store
    $is_addi = $dec_bits ==? 11'bx_000_0010011;
+   $is_slti = $dec_bits ==? 11'bx_010_0010011;
+   $is_sltiu = $dec_bits ==? 11'bx_011_0010011;
+   $is_xori = $dec_bits ==? 11'bx_100_0010011;
+   $is_ori = $dec_bits ==? 11'bx_110_0010011;
+   $is_andi = $dec_bits ==? 11'bx_111_0010011;
+   $is_slli = $dec_bits ==? 11'b0_001_0010011;
+   $is_srli = $dec_bits ==? 11'b0_101_0010011;
+   $is_srai = $dec_bits ==? 11'b1_101_0010011;
    $is_add = $dec_bits == 11'b0_000_0110011;
+   $is_sub = $dec_bits ==? 11'b1_000_0110011;
+   $is_sll = $dec_bits ==? 11'b0_001_0110011;
+   $is_slt = $dec_bits ==? 11'b0_010_0110011;
+   $is_sltu = $dec_bits ==? 11'b0_011_0110011;
+   $is_xor = $dec_bits ==? 11'b0_100_0110011;
+   $is_srl = $dec_bits ==? 11'b0_101_0110011;
+   $is_sra = $dec_bits ==? 11'b1_101_0110011;
+   $is_or = $dec_bits ==? 11'b0_110_0110011;
+   $is_and = $dec_bits ==? 11'b0_111_0110011;
    
    // Step 8: ALU - Create the ALU for arithmetic and logic operations (only support ADDI and ADD)
-   $result[31:0] = $is_addi? $src1_value + $imm :
-                   $is_add? $src1_value + $src2_value :
+   // In chapter 5, all operations are added
+   // SLTU and SLTI (set if less than, unsigned) results:
+   $sltu_rslt[31:0] = {31'b0, $src1_value < $src2_value};
+   $sltiu_rslt[31:0] = {31'b0, $src1_value < $imm};
+   // SRA and SRAI (shift right, arithmetic) results:
+   //		signed-extended src1
+   $sext_src1[63:0] = { {32{$src1_value[31]}}, $src1_value };
+   //		64-bit sign-extended resultsm to be truncated
+   $sra_rslt[63:0] = $sext_src1 >> $src2_value[4:0];
+   $srai_rslt[63:0] = $sext_src1 >> $imm[4:0];
+   // ALU results with full operation expansion (result_raw is used as DMEM MUX for load data is added)
+   $result_raw[31:0] = $is_andi ? $src1_value & $imm :
+                   $is_ori ? $src1_value | $imm :
+                   $is_xori ? $src1_value ^ $imm :
+                   ($is_addi || $is_load || $is_s_instr) ? $src1_value + $imm :
+                   $is_slli ? $src1_value << $imm[5:0] :
+                   $is_srli ? $src1_value >> $imm[5:0] :
+                   $is_and ? $src1_value & $src2_value :
+                   $is_or ? $src1_value | $src2_value :
+                   $is_xor ? $src1_value ^ $src2_value :
+                   $is_add ? $src1_value + $src2_value :
+                   $is_sub ? $src1_value - $src2_value :
+                   $is_sll ? $src1_value << $src2_value[4:0] :
+                   $is_srl ? $src1_value >> $src2_value[4:0] :
+                   $is_sltu ? $sltu_rslt :
+                   $is_sltiu ? $sltiu_rslt :
+                   $is_lui ? {$imm[31:12], 12'b0} :
+                   $is_auipc ? >>1$pc + $imm : // the pc in this context should be the corresponding instruction executed
+                   $is_jal ? >>1$pc + 32'd4 :  // the pc in this context should be the corresponding instruction executed
+                   $is_jalr ? >>1$pc + 32'd4 : // the pc in this context should be the corresponding instruction executed
+                   $is_slt ? ( ($src1_value[31] == $src2_value[31]) ? $sltu_rslt :
+                                                                     {31'b0, $src1_value[31]} ) :
+                   $is_slti ? ( ($src1_value[31] == $src2_value[31]) ? $sltiu_rslt :
+                                                                     {31'b0, $src1_value[31]} ) :
+                   $is_sra ? $sra_rslt[31:0] :
+                   $is_srai ? $srai_rslt[31:0] :
                    32'b0; // Note: default value
    
-   // Step 9: X0 - Prevent register X0 written to non-zero value by deasserting $wr_en
-   $wr_en = ! ($rd == 5'b0 && $result != 32'b0) && $rd_valid;
+   // Step 9: RF/X0 - Register file IO and prevent register X0 written to non-zero value by deasserting $wr_en and additional logic made to enable write back
+   $wr_en = ( !($rd == 5'b0 && $result != 32'b0) ) && $rd_valid;
    $rd1_en = $rs1_valid;
    $rd2_en = $rs2_valid;
    
-   // Step 10: BRANCH - Create branch taker with decoding logic
-   $taken_br = $is_beq? $src1_value == $src2_value :
-               $is_bne? $src1_value != $src2_value :
-               $is_blt? ($src1_value < $src2_value) ^ ($src1_value[31] != $src2_value[31]) :
-               $is_bge? ($src1_value >= $src2_value) ^ ($src1_value[31] != $src2_value[31]) :
-               $is_bltu? $src1_value < $src2_value :
-               $is_bgeu? $src1_value >= $src2_value :
+   // Step 13: DMEM LS - Load and store for dynamic memory
+   $addr[4:0] = $result_raw[4:0];
+   $wr_en_d = $is_s_instr;
+   $wr_data[31:0] = $src2_value;
+   $rd_en = $is_load;
+   $ld_data[31:0] = $rd_data;
+   $result[31:0] = $is_load ? $ld_data : $result_raw;
+   
+   // Step 10: BRANCH (and Jump) - Create branch taker with decoding logic
+   $taken_br = $is_beq ? $src1_value == $src2_value :
+               $is_bne ? $src1_value != $src2_value :
+               $is_blt ? ($src1_value < $src2_value) ^ ($src1_value[31] != $src2_value[31]) :
+               $is_bge ? ($src1_value >= $src2_value) ^ ($src1_value[31] != $src2_value[31]) :
+               $is_bltu ? $src1_value < $src2_value :
+               $is_bgeu ? $src1_value >= $src2_value :
                1'b0; // Note: default value
    $br_tgt_pc[31:0] = >>1$pc + $imm;
+   // Additional jumping logic for JALR
+   $jalr_tgt_pc[31:0] = $src1_value + $imm;
    
    // Assert these to end simulation (before Makerchip cycle limit).
    // Step 11: TB - Import testbench to verify logic
@@ -125,7 +177,8 @@
    
    // Step 7: REGISTER FILE - Instantiate the register bank for different operations
    m4+rf(32, 32, $reset, $wr_en, $rd[4:0], $result[31:0], $rd1_en, $rs1[4:0], $src1_value, $rd2_en, $rs2[4:0], $src2_value)
-   //m4+dmem(32, 32, $reset, $addr[4:0], $wr_en, $wr_data[31:0], $rd_en, $rd_data)
+   // Step 12: DMEM - Dynamic memory added for load-store instructions
+   m4+dmem(32, 32, $reset, $addr[4:0], $wr_en_d, $wr_data[31:0], $rd_en, $rd_data)
    m4+cpu_viz()
 \SV
    endmodule
